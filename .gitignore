@@ -1,0 +1,6 @@
+build/
+.codex-temp/
+models/
+*.wav
+*.onnx
+tokens.txt

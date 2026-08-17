@@ -1,0 +1,52 @@
+name: Audit gates
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-test:
+    name: 构建与测试 / windows-amd64
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: 配置 Go
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: 校验依赖完整性
+        run: go mod verify
+      - name: 通过打包脚本构建并测试
+        shell: pwsh
+        run: ./scripts/build.ps1
+      - name: 确认原生运行时随产物一起就绪
+        shell: pwsh
+        run: |
+          foreach ($name in @("v-local-cli-sensevoice.exe", "onnxruntime.dll", "sherpa-onnx-c-api.dll", "sherpa-onnx-cxx-api.dll")) {
+            if (-not (Test-Path -LiteralPath (Join-Path "build" $name) -PathType Leaf)) {
+              throw "构建产物缺少 $name"
+            }
+          }
+      - name: 检查依赖与标准库的已知漏洞
+        # sherpa-onnx 的 Windows 绑定必须在 CGO 下才能类型检查，因此 govulncheck
+        # 只能在装好 MinGW 的这个 Windows 作业里运行，而不是单独的纯 Go 作业。
+        shell: pwsh
+        run: |
+          $compiler = Get-Command gcc -ErrorAction SilentlyContinue
+          if (-not $compiler) { throw "缺少 gcc，无法在 CGO 下扫描漏洞。" }
+          $env:CGO_ENABLED = "1"
+          $env:CC = $compiler.Source
+          $runtimeRoot = Join-Path (go env GOMODCACHE).Trim() "github.com\k2-fsa\sherpa-onnx-go-windows@v1.13.5\lib\x86_64-pc-windows-gnu"
+          $env:PATH = "$runtimeRoot;$env:PATH"
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          & (Join-Path (go env GOPATH).Trim() "bin\govulncheck.exe") ./...
+          if ($LASTEXITCODE -ne 0) { throw "govulncheck 报告漏洞。" }
