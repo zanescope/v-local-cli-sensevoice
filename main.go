@@ -16,6 +16,8 @@ import (
 const protocolName = "v-local-cli-asr/1"
 const maxRequestBytes = 64 * 1024
 
+var version = "0.1.0-dev.0"
+
 type request struct {
 	Protocol  string `json:"protocol"`
 	Action    string `json:"action"`
@@ -39,6 +41,10 @@ type response struct {
 }
 
 func main() {
+	if len(os.Args) == 2 && (os.Args[1] == "--version" || os.Args[1] == "version") {
+		fmt.Fprintln(os.Stdout, version)
+		return
+	}
 	if len(os.Args) != 1 {
 		fail(errors.New("适配器不接受命令行参数"), 2)
 	}

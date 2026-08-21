@@ -27,6 +27,10 @@ try {
     if ($LASTEXITCODE -ne 0) {
         throw "Go tests failed."
     }
+    go vet ./...
+    if ($LASTEXITCODE -ne 0) {
+        throw "Go vet failed."
+    }
     go build -buildvcs=false -trimpath -o (Join-Path $outputRoot "v-local-cli-sensevoice.exe") .
     if ($LASTEXITCODE -ne 0) {
         throw "Go build failed."

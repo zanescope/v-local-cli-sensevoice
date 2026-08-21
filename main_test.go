@@ -1,9 +1,20 @@
 package main
 
 import (
+	"os"
 	"strings"
 	"testing"
 )
+
+func TestVersionMatchesReleaseMetadata(t *testing.T) {
+	payload, err := os.ReadFile("VERSION")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadataVersion := strings.TrimSpace(string(payload)); metadataVersion != version {
+		t.Fatalf("VERSION 中的 %q 与运行时版本 %q 不一致", metadataVersion, version)
+	}
+}
 
 func TestDecodeRequest(t *testing.T) {
 	value, err := decodeRequest(strings.NewReader(`{"protocol":"v-local-cli-asr/1","action":"transcribe","audio_path":"sample.wav","source_audio_sha256":"digest","sample_rate":16000,"channels":1,"language":"zh","model_path":"model"}`))

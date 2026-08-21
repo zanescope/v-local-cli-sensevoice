@@ -36,6 +36,11 @@ jobs:
               throw "构建产物缺少 $name"
             }
           }
+          $expectedVersion = (Get-Content -Raw VERSION).Trim()
+          $actualVersion = (& ./build/v-local-cli-sensevoice.exe --version).Trim()
+          if ($actualVersion -ne $expectedVersion) {
+            throw "二进制版本 $actualVersion 与 VERSION $expectedVersion 不一致"
+          }
       - name: 检查依赖与标准库的已知漏洞
         # sherpa-onnx 的 Windows 绑定必须在 CGO 下才能类型检查，因此 govulncheck
         # 只能在装好 MinGW 的这个 Windows 作业里运行，而不是单独的纯 Go 作业。

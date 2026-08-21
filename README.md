@@ -16,7 +16,7 @@ go test ./...
 go build -trimpath -o build/v-local-cli-sensevoice.exe .
 ```
 
-官方 Go 绑定需要 CGO。Windows 构建机需要可用的 MinGW-w64 C 编译器；推荐运行 `scripts/build.ps1`，它会测试、构建，并从锁定的 `v1.13.5` Go 模块复制三个必需的 DLL，最后输出 SHA-256。发布件还应该为模型单独生成摘要清单。
+官方 Go 绑定需要 CGO。Windows 构建机需要可用的 MinGW-w64 C 编译器；推荐运行 `scripts/build.ps1`，它会测试、构建，并从锁定的 `v1.13.5` Go 模块复制三个必需的 DLL，最后输出 SHA-256。项目不分发模型，已验收模型的来源和摘要见 [MODEL_SOURCES.md](MODEL_SOURCES.md)。候选件与正式 Authenticode 发布步骤见 [RELEASING.md](RELEASING.md)。
 
 ## 接入
 
