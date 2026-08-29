@@ -77,19 +77,7 @@ func TestModelIdentityBindsActualModelAndTokens(t *testing.T) {
 	}
 }
 
-func useModelIdentityCache(t *testing.T, minBytes int64) string {
-	t.Helper()
-	cache := t.TempDir()
-	previousDir, previousMin := modelIdentityCacheDir, modelIdentityCacheMinBytes
-	t.Cleanup(func() { modelIdentityCacheDir, modelIdentityCacheMinBytes = previousDir, previousMin })
-	modelIdentityCacheDir = func() (string, error) { return cache, nil }
-	modelIdentityCacheMinBytes = minBytes
-	return cache
-}
-
-// 适配器每条语音消息启动一次，模型有数百 MB，全量哈希必须能被签名缓存跳过。
-func TestModelIdentityCachesLargeInputsBySignature(t *testing.T) {
-	useModelIdentityCache(t, 16)
+func TestModelIdentityRejectsStaleMetadataCacheSemantics(t *testing.T) {
 	root := t.TempDir()
 	model := filepath.Join(root, "model.int8.onnx")
 	tokens := filepath.Join(root, "tokens.txt")
@@ -104,7 +92,7 @@ func TestModelIdentityCachesLargeInputsBySignature(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 改写内容但保持大小与 mtime 不变：只有真的读了缓存才会返回同一个标识。
+	// 部署工具可以在替换内容时保留路径、大小与 mtime；内容身份仍必须变化。
 	info, err := os.Stat(model)
 	if err != nil {
 		t.Fatal(err)
@@ -115,47 +103,11 @@ func TestModelIdentityCachesLargeInputsBySignature(t *testing.T) {
 	if err := os.Chtimes(model, info.ModTime(), info.ModTime()); err != nil {
 		t.Fatal(err)
 	}
-	cached, err := modelIdentity(model, tokens)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if cached != first {
-		t.Fatalf("大输入没有命中签名缓存：%q != %q", cached, first)
-	}
-
-	// 签名变化（这里是大小）必须让缓存失效并重新计算。
-	if err := os.WriteFile(model, []byte("model-content-bbbb-longer"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	changed, err := modelIdentity(model, tokens)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if changed == first {
-		t.Fatal("输入签名变化后仍返回了旧的模型身份")
-	}
-}
-
-// 小输入必须绕过缓存：哈希本来就便宜，而 mtime 粒度不足以在连续写入之间区分内容。
-func TestModelIdentitySkipsCacheForSmallInputs(t *testing.T) {
-	cache := useModelIdentityCache(t, modelIdentityCacheMinBytes)
-	root := t.TempDir()
-	model := filepath.Join(root, "model.int8.onnx")
-	tokens := filepath.Join(root, "tokens.txt")
-	if err := os.WriteFile(model, []byte("model-a"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(tokens, []byte("tokens-a"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := modelIdentity(model, tokens); err != nil {
-		t.Fatal(err)
-	}
-	entries, err := os.ReadDir(cache)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(entries) != 0 {
-		t.Fatalf("小输入不应写入模型身份缓存：%v", entries)
+		t.Fatalf("模型内容变化后仍返回旧身份：%q", changed)
 	}
 }
