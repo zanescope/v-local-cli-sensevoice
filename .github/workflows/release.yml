@@ -70,11 +70,12 @@ jobs:
           if ($assets.Count -lt 2) { throw '正式发布资产不完整' }
           & gh release view $env:GITHUB_REF_NAME *> $null
           if ($LASTEXITCODE -eq 0) {
+            $isPrerelease = (& gh release view $env:GITHUB_REF_NAME --json isPrerelease --jq '.isPrerelease').Trim()
+            if ($isPrerelease -ne 'true') { throw '已存在的正式 Release 不能由未复验工作流覆盖' }
             $arguments = @('release', 'upload', $env:GITHUB_REF_NAME) + $assets + @('--clobber')
           }
           else {
-            $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $assets + @('--verify-tag', '--generate-notes', '--title', $env:GITHUB_REF_NAME)
-            if ($env:GITHUB_REF_NAME.Contains('-')) { $arguments += '--prerelease' }
+            $arguments = @('release', 'create', $env:GITHUB_REF_NAME) + $assets + @('--verify-tag', '--generate-notes', '--title', $env:GITHUB_REF_NAME, '--prerelease')
           }
           & gh @arguments
           if ($LASTEXITCODE -ne 0) { throw 'GitHub Release 创建失败' }
