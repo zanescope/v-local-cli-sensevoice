@@ -25,7 +25,7 @@ v-local-cli voice-status --asr-provider <v-local-cli-sensevoice.exe> --model <Se
 v-local-cli voice-transcribe --asr-provider <v-local-cli-sensevoice.exe> --model <SenseVoice模型目录> <voice_evidence_id>
 ```
 
-音频由 `v-local-cli` 解码成权限受限的 16 kHz 单声道临时 WAV，适配器读取后直接离线识别；两端都不持久保存该 WAV，适配器响应固定声明 `network_used=false`。请求必须携带规范的原始 SILK `source_audio_sha256`，但适配器只收到解码 WAV，因此该值是经格式校验的调用方 provenance，不是适配器独立复算结果。请求语言只接受 `auto/zh/yue/en/ja/ko`，未知值直接拒绝。响应的 `language` 优先使用识别器实际返回的语言（只有识别器未返回且请求明确指定语言时才回退请求值；auto 未识别时为 `unknown`）；`model` 是对 `model.int8.onnx + tokens.txt` 的文件名、长度和内容做域分隔完整 SHA-256 后形成的 `sensevoice-int8@sha256:...` 身份，不再使用固定名或截断摘要。为保持该身份确实绑定内容，适配器每次调用都会重新读取并哈希两个文件，不使用路径、大小或 mtime 缓存。CLI 会校验并按这两个响应字段写入缓存。
+音频由 `v-local-cli` 解码成权限受限的 16 kHz 单声道临时 WAV，适配器读取后直接离线识别；两端都不持久保存该 WAV，适配器响应固定声明 `network_used=false`。请求必须携带规范的原始 SILK `source_audio_sha256`，但适配器只收到解码 WAV，因此该值是经格式校验的调用方 provenance，不是适配器独立复算结果。请求语言只接受 `auto/zh/yue/en/ja/ko`，未知值直接拒绝。响应的 `language` 优先使用识别器实际返回的语言（只有识别器未返回且请求明确指定语言时才回退请求值；auto 未识别时为 `unknown`）；`model` 是对 `model.int8.onnx + tokens.txt` 的文件名、长度和内容做域分隔完整 SHA-256 后形成的 `sensevoice-int8@sha256:...` 身份，不再使用固定名或截断摘要。每次调用都会在复制模型与 tokens 到当前用户私有临时目录的同时计算该身份，识别器只加载这两个固定副本；因此部署工具即使在调用期间替换原路径，也不会让响应身份与实际推理内容分离。副本在识别结束后删除，不使用路径、大小或 mtime 缓存。CLI 会校验并按这两个响应字段写入缓存。
 
 ## 上游边界
 

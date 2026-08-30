@@ -42,19 +42,14 @@ func transcribe(input request) (response, error) {
 	}
 	modelPath := filepath.Join(modelDirectory, "model.int8.onnx")
 	tokensPath := filepath.Join(modelDirectory, "tokens.txt")
-	if err := regularFile(modelPath); err != nil {
-		return response{}, err
-	}
-	if err := regularFile(tokensPath); err != nil {
-		return response{}, err
-	}
 	if err := regularFile(input.AudioPath); err != nil {
 		return response{}, err
 	}
-	modelID, err := modelIdentity(modelPath, tokensPath)
+	stagedModel, err := stageModelBundle(modelPath, tokensPath)
 	if err != nil {
-		return response{}, errors.New("无法计算 SenseVoice 模型身份")
+		return response{}, errors.New("无法固定 SenseVoice 模型内容")
 	}
+	defer func() { _ = stagedModel.Close() }()
 
 	wave := sherpa.ReadWave(input.AudioPath)
 	if wave == nil || wave.SampleRate != 16000 || len(wave.Samples) == 0 {
@@ -63,10 +58,10 @@ func transcribe(input request) (response, error) {
 	config := sherpa.OfflineRecognizerConfig{}
 	config.FeatConfig.SampleRate = 16000
 	config.FeatConfig.FeatureDim = 80
-	config.ModelConfig.SenseVoice.Model = modelPath
+	config.ModelConfig.SenseVoice.Model = stagedModel.Paths[0]
 	config.ModelConfig.SenseVoice.Language = input.Language
 	config.ModelConfig.SenseVoice.UseInverseTextNormalization = 1
-	config.ModelConfig.Tokens = tokensPath
+	config.ModelConfig.Tokens = stagedModel.Paths[1]
 	config.ModelConfig.NumThreads = max(1, min(4, runtime.NumCPU()/2))
 	config.ModelConfig.Provider = "cpu"
 	config.DecodingMethod = "greedy_search"
@@ -91,7 +86,7 @@ func transcribe(input request) (response, error) {
 	language := normalizeObservedLanguage(result.Lang, input.Language)
 	return response{
 		Protocol: protocolName, Transcript: text, Engine: "sherpa-onnx-sensevoice",
-		Model: modelID, Language: language, NetworkUsed: false,
+		Model: stagedModel.Identity, Language: language, NetworkUsed: false,
 	}, nil
 }
 

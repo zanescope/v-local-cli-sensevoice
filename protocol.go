@@ -111,40 +111,89 @@ func normalizeObservedLanguage(value, requested string) string {
 	return "unknown"
 }
 
-func modelIdentity(paths ...string) (string, error) {
-	// A content-bound identity cannot safely reuse a digest from path, size and
-	// mtime alone: deployment tools can preserve all three while replacing the
-	// bytes. Rehash both files on every short-lived adapter invocation.
-	return computeModelIdentity(paths)
+type stagedModelBundle struct {
+	Directory string
+	Paths     []string
+	Identity  string
 }
 
-func computeModelIdentity(paths []string) (string, error) {
+func (bundle *stagedModelBundle) Close() error {
+	if bundle == nil || bundle.Directory == "" {
+		return nil
+	}
+	directory := bundle.Directory
+	bundle.Directory = ""
+	bundle.Paths = nil
+	return os.RemoveAll(directory)
+}
+
+func stageModelBundle(paths ...string) (*stagedModelBundle, error) {
+	if len(paths) == 0 {
+		return nil, errors.New("模型身份输入为空")
+	}
+	directory, err := createPrivateModelStageDirectory()
+	if err != nil {
+		return nil, err
+	}
+	bundle := &stagedModelBundle{Directory: directory, Paths: make([]string, 0, len(paths))}
+	fail := func(cause error) (*stagedModelBundle, error) {
+		return nil, errors.Join(cause, bundle.Close())
+	}
 	digest := sha256.New()
 	_, _ = io.WriteString(digest, "v-local-cli-sensevoice/model-identity/v1\x00")
+	names := make(map[string]struct{}, len(paths))
 	for _, path := range paths {
-		file, err := os.Open(path)
+		name := filepath.Base(path)
+		if name == "." || name == ".." || name == "" || filepath.Clean(name) != name {
+			return fail(errors.New("模型身份输入名称无效"))
+		}
+		if _, exists := names[name]; exists {
+			return fail(errors.New("模型身份输入名称重复"))
+		}
+		names[name] = struct{}{}
+		source, err := os.Open(path)
 		if err != nil {
-			return "", err
+			return fail(err)
 		}
-		info, statErr := file.Stat()
+		info, statErr := source.Stat()
 		if statErr != nil || !info.Mode().IsRegular() {
-			_ = file.Close()
-			return "", errors.New("模型身份输入不是普通文件")
+			_ = source.Close()
+			return fail(errors.New("模型身份输入不是普通文件"))
 		}
-		if _, err := fmt.Fprintf(digest, "%s\x00%d\x00", filepath.Base(path), info.Size()); err != nil {
-			_ = file.Close()
-			return "", err
+		target := filepath.Join(directory, name)
+		destination, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+		if err != nil {
+			_ = source.Close()
+			return fail(err)
 		}
-		_, copyErr := io.Copy(digest, file)
-		closeErr := file.Close()
-		if copyErr != nil {
-			return "", copyErr
+		if _, err := fmt.Fprintf(digest, "%s\x00%d\x00", name, info.Size()); err != nil {
+			_ = source.Close()
+			_ = destination.Close()
+			return fail(err)
 		}
-		if closeErr != nil {
-			return "", closeErr
+		written, copyErr := io.Copy(io.MultiWriter(destination, digest), source)
+		syncErr := destination.Sync()
+		sourceCloseErr := source.Close()
+		destinationCloseErr := destination.Close()
+		if copyErr != nil || syncErr != nil || sourceCloseErr != nil || destinationCloseErr != nil {
+			return fail(errors.Join(copyErr, syncErr, sourceCloseErr, destinationCloseErr))
 		}
+		if written != info.Size() {
+			return fail(errors.New("模型身份输入在固定期间发生长度变化"))
+		}
+		bundle.Paths = append(bundle.Paths, target)
 	}
-	return fmt.Sprintf("sensevoice-int8@sha256:%x", digest.Sum(nil)), nil
+	bundle.Identity = fmt.Sprintf("sensevoice-int8@sha256:%x", digest.Sum(nil))
+	return bundle, nil
+}
+
+func modelIdentity(paths ...string) (string, error) {
+	bundle, err := stageModelBundle(paths...)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = bundle.Close() }()
+	return bundle.Identity, nil
 }
 
 func regularFile(path string) error {

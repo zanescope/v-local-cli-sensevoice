@@ -111,3 +111,43 @@ func TestModelIdentityRejectsStaleMetadataCacheSemantics(t *testing.T) {
 		t.Fatalf("模型内容变化后仍返回旧身份：%q", changed)
 	}
 }
+
+func TestStagedModelBundleKeepsIdentityAndRecognizerPathsTogether(t *testing.T) {
+	root := t.TempDir()
+	model := filepath.Join(root, "model.int8.onnx")
+	tokens := filepath.Join(root, "tokens.txt")
+	if err := os.WriteFile(model, []byte("model-before-staging"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tokens, []byte("tokens-before-staging"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := stageModelBundle(model, tokens)
+	if err != nil {
+		t.Fatal(err)
+	}
+	stageDirectory := bundle.Directory
+	if len(bundle.Paths) != 2 || bundle.Paths[0] == model || bundle.Paths[1] == tokens {
+		t.Fatalf("识别器没有被路由到固定副本：%+v", bundle.Paths)
+	}
+	if err := os.WriteFile(model, []byte("model-after-staging"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(tokens, []byte("tokens-after-staging"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	stagedModel, err := os.ReadFile(bundle.Paths[0])
+	if err != nil || string(stagedModel) != "model-before-staging" {
+		t.Fatalf("源模型替换影响了识别器固定副本：payload=%q err=%v", stagedModel, err)
+	}
+	stagedIdentity, err := modelIdentity(bundle.Paths...)
+	if err != nil || stagedIdentity != bundle.Identity {
+		t.Fatalf("响应身份没有描述识别器实际路径内容：bundle=%q staged=%q err=%v", bundle.Identity, stagedIdentity, err)
+	}
+	if err := bundle.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stageDirectory); !os.IsNotExist(err) {
+		t.Fatalf("模型固定目录未清理：%v", err)
+	}
+}
